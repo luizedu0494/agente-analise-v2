@@ -1,11 +1,12 @@
 # requirements.txt
 
+# Bibliotecas principais da aplicação
 streamlit
 pandas
-google-generativeai
-# Forçando versões mais recentes do LangChain
+matplotlib
+tabulate
+
+# Forçando versões mais recentes do LangChain e do Google GenAI
 langchain>=0.2.0
 langchain-experimental>=0.0.60
 langchain-google-genai>=1.0.0
-tabulate
-matplotlib
