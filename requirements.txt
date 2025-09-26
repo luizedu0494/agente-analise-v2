@@ -3,7 +3,8 @@
 streamlit
 pandas
 google-generativeai
-langchain
-langchain-experimental
-langchain-google-genai
+# Forçando versões mais recentes do LangChain
+langchain>=0.2.0
+langchain-experimental>=0.0.60
+langchain-google-genai>=1.0.0
 tabulate
