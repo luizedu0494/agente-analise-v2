@@ -1,66 +1,77 @@
-import os
 import streamlit as st
 import pandas as pd
-from dotenv import load_dotenv
+from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
+from langchain_google_genai import ChatGoogleGenerativeAI
 
-# Importa a lógica do nosso agente do arquivo separado
-from agent_logic import criar_agente_pandas, criar_prompt_detalhado
+# Configuração da página do Streamlit
+st.set_page_config(page_title="Agente de Análise de CSV", layout="wide")
+st.title("🤖 Agente Autônomo para Análise de Dados (E.D.A.)")
 
-# --- 1. Configuração da Página e Chaves de API ---
-st.set_page_config(
-    page_title="Agente de Análise v2.0",
-    page_icon="📊",
-    layout="wide"
-)
-load_dotenv()
-API_KEY = st.secrets.get("GOOGLE_API_KEY", os.getenv("GOOGLE_API_KEY"))
-
-# --- 2. Interface do Usuário (UI) ---
-st.title("🤖 Agente de Análise de Dados v2.0")
-st.markdown("Estrutura renovada para máxima performance e estabilidade.")
-
-uploaded_file = st.file_uploader(
-    "**Faça o upload de um arquivo CSV**",
-    type=["csv"]
-)
-
-# --- 3. Lógica Principal do App ---
-if uploaded_file is not None:
+# Função para criar e configurar o agente
+def criar_agente(df, api_key):
+    """Cria um agente LangChain para interagir com um DataFrame Pandas."""
     try:
-        df = pd.read_csv(uploaded_file)
-        st.success(f"Arquivo '{uploaded_file.name}' carregado com sucesso! O DataFrame possui {df.shape[0]} linhas e {df.shape[1]} colunas.")
-        st.dataframe(df.head()) # Mostra apenas as 5 primeiras linhas para economizar espaço
-
-        st.markdown("---")
-        question = st.text_input(
-            "**Faça sua pergunta sobre os dados:**",
-            placeholder="Ex: Qual a média da coluna 'valor' para cada 'categoria'?"
+        # Inicializa o modelo de linguagem (LLM) do Google Gemini
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-pro",
+            google_api_key=api_key,
+            temperature=0, # Usamos 0 para respostas mais diretas e menos "criativas"
+            convert_system_message_to_human=True
         )
 
-        if st.button("Analisar Dados", type="primary"):
-            if not question:
-                st.warning("Por favor, digite uma pergunta para análise.")
-            elif not API_KEY:
-                st.error("Chave da API do Google não configurada! Verifique seus 'Secrets' no Streamlit Cloud.")
-            else:
-                with st.spinner("O Agente Gemini está analisando... Isso pode levar um momento. 🧠"):
+        # Cria o agente de DataFrame. É aqui que a "mágica" acontece.
+        # Ele conecta o LLM (Gemini) ao nosso DataFrame (df)
+        agent = create_pandas_dataframe_agent(
+            llm,
+            df,
+            verbose=True, # Mostra os "pensamentos" do agente no terminal
+            allow_dangerous_code=True # Permite que o agente execute código Python gerado por ele
+        )
+        return agent
+    except Exception as e:
+        st.error(f"Erro ao inicializar o agente: {e}")
+        return None
+
+# --- Interface do Usuário ---
+
+st.sidebar.header("Configurações")
+# Uploader de arquivo na barra lateral
+uploaded_file = st.sidebar.file_uploader("Faça o upload do seu arquivo CSV", type=["csv"])
+
+if uploaded_file is not None:
+    try:
+        # Carrega o arquivo CSV em um DataFrame do Pandas
+        df = pd.read_csv(uploaded_file)
+        st.subheader("Visualização dos Dados Carregados")
+        st.dataframe(df.head()) # Mostra as 5 primeiras linhas do dataframe
+
+        # Pega a chave da API dos segredos do Streamlit
+        api_key = st.secrets["GOOGLE_API_KEY"]
+
+        # Cria o agente com os dados carregados
+        agente = criar_agente(df, api_key)
+
+        if agente:
+            st.subheader("Faça uma pergunta sobre seus dados:")
+            # Caixa de texto para o usuário fazer a pergunta
+            query = st.text_input("Ex: 'Qual a distribuição da coluna Class?' ou 'Gere um histograma para a coluna Amount'")
+
+            if query:
+                with st.spinner("O agente está pensando e processando sua solicitação..."):
                     try:
-                        # 1. Cria a instância do agente
-                        agent_executor = criar_agente_pandas(df, API_KEY)
-                        
-                        # 2. Cria o prompt detalhado
-                        prompt_formatado = criar_prompt_detalhado(question, uploaded_file.name)
-                        
-                        # 3. Executa o agente com o prompt
-                        response = agent_executor.invoke(prompt_formatado)
-                        
-                        # 4. Exibe a resposta
-                        st.success("Análise Concluída!")
-                        st.markdown("### Resposta do Agente:")
-                        st.write(response["output"])
+                        # Executa o agente com a pergunta do usuário
+                        # O método .invoke() envia a pergunta para o agente processar
+                        response = agente.invoke(query)
+
+                        st.subheader("Resposta do Agente:")
+                        # A resposta do agente pode conter texto e gráficos.
+                        # O Streamlit é inteligente para renderizar diferentes tipos de saída.
+                        st.write(response)
 
                     except Exception as e:
-                        st.error(f"Ocorreu um erro durante a execução do agente: {e}")
+                        st.error(f"Ocorreu um erro ao processar sua pergunta: {e}")
 
     except Exception as e:
-        st.error(f"Ocorreu um erro ao ler o arquivo CSV: {e}")
+        st.error(f"Erro ao carregar ou processar o arquivo CSV: {e}")
+else:
+    st.info("Por favor, faça o upload de um arquivo CSV para começar.")
