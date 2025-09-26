@@ -6,3 +6,4 @@ google-generativeai
 langchain
 langchain-experimental
 langchain-google-genai
+tabulate
