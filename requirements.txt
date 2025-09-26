@@ -1,0 +1,7 @@
+streamlit==1.35.0
+pandas==2.2.2
+langchain-google-genai==1.0.6
+langchain-agents==0.2.5
+openpyxl==3.1.3
+python-dotenv==1.0.1
+sdsds
