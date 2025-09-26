@@ -13,7 +13,8 @@ def criar_agente(df, api_key):
     try:
         # Inicializa o modelo de linguagem (LLM) do Google Gemini
         llm = ChatGoogleGenerativeAI(
-            model="gemini-pro",
+            # --- ESTA É A LINHA QUE FOI MODIFICADA ---
+            model="gemini-1.0-pro",
             google_api_key=api_key,
             temperature=0, # Usamos 0 para respostas mais diretas e menos "criativas"
             convert_system_message_to_human=True
