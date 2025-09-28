@@ -1,4 +1,4 @@
-# app.py - Versão Original com o Ajuste Correto
+# app.py - Versão Final com Camada de Tradução Explícita
 
 import streamlit as st
 import pandas as pd
@@ -10,8 +10,7 @@ from PIL import Image
 # Importações para LangChain e Groq
 from langchain_groq import ChatGroq
 from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
-# Importação necessária para a mensagem extra
-from langchain_core.prompts import MessagesPlaceholder
+# Não precisamos mais de prompts customizados, vamos simplificar
 
 st.set_page_config(page_title="🤖 Agente de Análise de Dados", layout="wide")
 st.title("🤖 Agente de Análise de Dados com Groq")
@@ -23,6 +22,9 @@ if "agent_executor" not in st.session_state:
     st.session_state.agent_executor = None
 if "df_global" not in st.session_state:
     st.session_state.df_global = None
+# Adicionamos o LLM ao estado da sessão para reutilizá-lo na tradução
+if "llm" not in st.session_state:
+    st.session_state.llm = None
 
 # --- Barra Lateral ---
 with st.sidebar:
@@ -40,38 +42,26 @@ with st.sidebar:
                 st.session_state.df_global = df
                 
                 groq_api_key = st.secrets["GROQ_API_KEY"]
-                llm = ChatGroq(temperature=0, model_name="gemma2-9b-it", groq_api_key=groq_api_key)
+                # Guardamos a instância do LLM para usar depois
+                st.session_state.llm = ChatGroq(temperature=0, model_name="gemma2-9b-it", groq_api_key=groq_api_key)
                 
-                # --- INÍCIO DA CORREÇÃO ---
-                # Esta é a instrução persistente que o agente seguirá.
-                # É mais eficaz que um system prompt genérico.
-                prompt_message = MessagesPlaceholder(
-                    variable_name="extra_instructions",
-                    messages=[(
-                        "system",
-                        "Sempre, sem exceção, formule sua resposta final para o usuário em português do Brasil. "
-                        "O pensamento interno e o código Python podem ser em inglês, mas a resposta final (o campo 'output') "
-                        "DEVE estar em português."
-                    )]
-                )
-
+                # --- VOLTANDO AO SIMPLES ---
+                # Criamos o agente da forma mais básica possível, sem tentar forçar o prompt.
+                # Deixamos ele responder em inglês.
                 st.session_state.agent_executor = create_pandas_dataframe_agent(
-                    llm,
-                    df,
+                    llm=st.session_state.llm,
+                    df=df,
                     agent_type="openai-tools", 
                     verbose=True,
                     allow_dangerous_code=True,
-                    # CORREÇÃO: Usando 'extra_prompt_messages' em vez de 'agent_executor_kwargs'.
-                    # Esta é a forma moderna e correta de adicionar instruções.
-                    extra_prompt_messages=[prompt_message]
                 )
-                # --- FIM DA CORREÇÃO ---
+                # --- FIM DA SIMPLIFICAÇÃO ---
 
                 st.success("Agente pronto! Faça sua pergunta.")
             except Exception as e:
                 st.error(f"Erro na inicialização: {e}")
 
-# --- Área de Chat (Exatamente como no seu código original) ---
+# --- Área de Chat ---
 st.header("2. Converse com seus dados")
 st.info("Para melhores resultados, peça um tipo de gráfico por vez (ex: 'gere um histograma para V1').")
 
@@ -90,22 +80,42 @@ if prompt := st.chat_input("Faça uma pergunta específica..."):
         with st.chat_message("assistant"):
             with st.spinner("Analisando e respondendo..."):
                 try:
-                    # A chamada invoke permanece simples, como no seu original
+                    # 1. O agente executa e responde (provavelmente em inglês)
                     response = st.session_state.agent_executor.invoke({"input": prompt})
-                    output_text = response.get("output", "A resposta do agente foi vazia.")
+                    english_output = response.get("output", "A resposta do agente foi vazia.")
                     
+                    # --- CAMADA DE TRADUÇÃO FORÇADA ---
+                    # 2. Verificamos se a resposta não está vazia para traduzir
+                    if english_output and english_output != "A resposta do agente foi vazia.":
+                        with st.spinner("Traduzindo resposta para português..."):
+                            # Criamos um prompt de tradução simples e direto
+                            translation_prompt = f"Traduza o seguinte texto para o português do Brasil, mantendo a formatação original (como listas e quebras de linha):\n\n{english_output}"
+                            
+                            # 3. Usamos o mesmo LLM para fazer a tradução
+                            translation_response = st.session_state.llm.invoke(translation_prompt)
+                            
+                            # A resposta final é o conteúdo da tradução
+                            final_output = translation_response.content
+                    else:
+                        final_output = english_output
+                    # --- FIM DA CAMADA DE TRADUÇÃO ---
+
+                    # A regex para encontrar o caminho do plot continua funcionando
                     image_path = None
-                    match = re.search(r"(/tmp/plots/.*\.png)", output_text)
+                    # Buscamos o plot tanto na resposta original quanto na traduzida
+                    match = re.search(r"(/tmp/plots/.*\.png)", english_output)
                     if match:
                         image_path = match.group(1)
 
-                    st.markdown(output_text)
-                    st.session_state.history.append({"role": "assistant", "content": output_text})
+                    # Exibimos a resposta final traduzida
+                    st.markdown(final_output)
+                    # E salvamos a resposta traduzida no histórico
+                    st.session_state.history.append({"role": "assistant", "content": final_output})
 
                     if image_path and os.path.exists(image_path):
                         image = Image.open(image_path)
                         st.image(image, caption="Gráfico gerado pelo agente")
-                    elif "plot has been saved" in output_text and not image_path:
+                    elif "plot has been saved" in english_output and not image_path:
                          st.warning("O agente gerou um gráfico, mas não consegui exibi-lo. Tente pedir o gráfico novamente de forma mais específica.")
 
                 except Exception as e:
