@@ -1,4 +1,4 @@
-# app.py - Versão Corrigida (Foco no Idioma)
+# app.py - Versão com Correção Final de Inicialização
 
 import streamlit as st
 import pandas as pd
@@ -7,7 +7,6 @@ import os
 import re
 from PIL import Image
 
-# Importações para LangChain e Groq
 from langchain_groq import ChatGroq
 from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
 
@@ -41,14 +40,12 @@ with st.sidebar:
                 llm = ChatGroq(temperature=0, model_name="gemma2-9b-it", groq_api_key=groq_api_key)
                 
                 # --- INÍCIO DA CORREÇÃO ---
-                # Definindo as instruções em português para o agente
                 PREFIX = """
                 Você é um agente de análise de dados que trabalha com um dataframe pandas.
                 Você tem acesso a um dataframe pandas chamado `df`.
                 Você tem as seguintes ferramentas à sua disposição:
                 """
 
-                # SUFFIX simplificado, sem o histórico de chat
                 SUFFIX = """
                 A pergunta do usuário é: {input}
 
@@ -58,26 +55,25 @@ with st.sidebar:
                 {agent_scratchpad}
                 """
                 
-                # Criando o agente com as instruções (prefix e suffix) personalizadas
+                # Criando o agente com as instruções e as variáveis de input corretas
                 st.session_state.agent_executor = create_pandas_dataframe_agent(
                     llm,
                     df,
                     prefix=PREFIX,
                     suffix=SUFFIX,
-                    # Removido o input_variables que causava o erro
+                    # CORREÇÃO: Declarando as variáveis que o agente espera por padrão.
+                    input_variables=['input', 'agent_scratchpad'],
                     agent_type="openai-tools",
                     verbose=True,
                     allow_dangerous_code=True,
-                    # O 'handle_parsing_errors' pode ser removido, pois o log mostrou que não é mais suportado
                 )
                 # --- FIM DA CORREÇÃO ---
 
                 st.success("Agente pronto! Faça sua pergunta.")
             except Exception as e:
-                # A mensagem de erro agora será mais específica
                 st.error(f"Erro na inicialização: {e}")
 
-# --- Área de Chat (sem alterações, mas agora o histórico é apenas para exibição) ---
+# --- Área de Chat (sem alterações) ---
 st.header("2. Converse com seus dados")
 st.info("Para melhores resultados, peça um tipo de gráfico por vez (ex: 'gere um histograma para V1').")
 
@@ -96,7 +92,6 @@ if prompt := st.chat_input("Faça uma pergunta específica..."):
         with st.chat_message("assistant"):
             with st.spinner("Analisando e respondendo..."):
                 try:
-                    # A chamada ao invoke foi simplificada, sem o chat_history
                     response = st.session_state.agent_executor.invoke({"input": prompt})
                     output_text = response.get("output", "A resposta do agente foi vazia.")
                     
