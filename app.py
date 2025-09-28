@@ -1,4 +1,4 @@
-# app.py - Versão com Correção de Idioma Aprimorada
+# app.py - Versão Corrigida (Foco no Idioma)
 
 import streamlit as st
 import pandas as pd
@@ -10,8 +10,6 @@ from PIL import Image
 # Importações para LangChain e Groq
 from langchain_groq import ChatGroq
 from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
-# Importação necessária para modificar o prompt do agente
-from langchain.agents.agent_toolkits import create_conversational_retrieval_agent
 
 st.set_page_config(page_title="🤖 Agente de Análise de Dados", layout="wide")
 st.title("🤖 Agente de Análise de Dados com Groq")
@@ -46,50 +44,43 @@ with st.sidebar:
                 # Definindo as instruções em português para o agente
                 PREFIX = """
                 Você é um agente de análise de dados que trabalha com um dataframe pandas.
-                Seu nome é 'Pandas Agent'.
                 Você tem acesso a um dataframe pandas chamado `df`.
                 Você tem as seguintes ferramentas à sua disposição:
                 """
 
+                # SUFFIX simplificado, sem o histórico de chat
                 SUFFIX = """
-                Este é o histórico da conversa até agora:
-                {chat_history}
-
-                Nova pergunta do usuário: {input}
+                A pergunta do usuário é: {input}
 
                 Sempre, sem exceção, formule sua resposta final para o usuário em **português do Brasil**.
                 O pensamento interno e o código Python podem ser em inglês, mas a resposta final (o campo 'output') DEVE estar em português.
 
                 {agent_scratchpad}
                 """
+                
                 # Criando o agente com as instruções (prefix e suffix) personalizadas
                 st.session_state.agent_executor = create_pandas_dataframe_agent(
                     llm,
                     df,
                     prefix=PREFIX,
                     suffix=SUFFIX,
+                    # Removido o input_variables que causava o erro
                     agent_type="openai-tools",
                     verbose=True,
                     allow_dangerous_code=True,
-                    handle_parsing_errors=True,
-                    # O input_variables garante que 'chat_history' seja reconhecido
-                    input_variables=['input', 'agent_scratchpad', 'chat_history']
+                    # O 'handle_parsing_errors' pode ser removido, pois o log mostrou que não é mais suportado
                 )
                 # --- FIM DA CORREÇÃO ---
 
                 st.success("Agente pronto! Faça sua pergunta.")
             except Exception as e:
+                # A mensagem de erro agora será mais específica
                 st.error(f"Erro na inicialização: {e}")
 
-# --- Área de Chat (sem alterações) ---
+# --- Área de Chat (sem alterações, mas agora o histórico é apenas para exibição) ---
 st.header("2. Converse com seus dados")
 st.info("Para melhores resultados, peça um tipo de gráfico por vez (ex: 'gere um histograma para V1').")
 
-# Inicializa o histórico se ele não existir (necessário para o agente com memória)
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-# Exibe o histórico de chat
 for message in st.session_state.history:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
@@ -105,13 +96,8 @@ if prompt := st.chat_input("Faça uma pergunta específica..."):
         with st.chat_message("assistant"):
             with st.spinner("Analisando e respondendo..."):
                 try:
-                    # Prepara o histórico para o formato que o agente espera
-                    chat_history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.history[:-1]])
-
-                    response = st.session_state.agent_executor.invoke({
-                        "input": prompt,
-                        "chat_history": chat_history_str
-                    })
+                    # A chamada ao invoke foi simplificada, sem o chat_history
+                    response = st.session_state.agent_executor.invoke({"input": prompt})
                     output_text = response.get("output", "A resposta do agente foi vazia.")
                     
                     image_path = None
@@ -132,4 +118,3 @@ if prompt := st.chat_input("Faça uma pergunta específica..."):
                     error_message = f"Ocorreu um erro: {e}"
                     st.error(error_message)
                     st.session_state.history.append({"role": "assistant", "content": error_message})
-
