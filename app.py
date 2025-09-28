@@ -1,4 +1,4 @@
-# app.py - Versão Final com Tradução Inteligente
+# app.py - Versão Final com Ferramenta Modificada
 
 import streamlit as st
 import pandas as pd
@@ -9,11 +9,14 @@ from PIL import Image
 
 from langchain_groq import ChatGroq
 from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
+from langchain_experimental.tools.python.tool import PythonAstREPLTool
+from langchain_core.tools import Tool
 
 st.set_page_config(page_title="🤖 Agente de Análise de Dados", layout="wide")
 st.title("🤖 Agente de Análise de Dados com Groq")
 
 # --- Estado da Sessão ---
+# ... (sem alterações no estado da sessão)
 if "history" not in st.session_state:
     st.session_state.history = []
 if "agent_executor" not in st.session_state:
@@ -22,24 +25,6 @@ if "df_global" not in st.session_state:
     st.session_state.df_global = None
 if "llm" not in st.session_state:
     st.session_state.llm = None
-
-# --- Função Auxiliar para Decidir se Traduz ---
-def is_natural_language(text):
-    """Verifica se o texto parece ser linguagem natural e não código ou objeto."""
-    # Se for muito curto, provavelmente não é uma frase para traduzir
-    if len(text.split()) < 3:
-        return False
-    # Se contém '<' e '>' ou '/', provavelmente é um objeto ou caminho
-    if '<' in text and '>' in text or '/' in text:
-        return False
-    # Se contém palavras comuns de respostas em inglês, é um bom candidato
-    common_words = ['mean', 'median', 'column', 'data', 'following', 'there is', 'are']
-    if any(word in text.lower() for word in common_words):
-        return True
-    # Se nada disso se aplicar, mas for longo o suficiente, vamos tentar traduzir
-    if len(text.split()) >= 3:
-        return True
-    return False
 
 # --- Barra Lateral ---
 with st.sidebar:
@@ -59,20 +44,82 @@ with st.sidebar:
                 groq_api_key = st.secrets["GROQ_API_KEY"]
                 st.session_state.llm = ChatGroq(temperature=0, model_name="gemma2-9b-it", groq_api_key=groq_api_key)
                 
+                # --- INÍCIO DA MODIFICAÇÃO DA FERRAMENTA ---
+
+                # 1. Criamos a ferramenta padrão que o agente usaria
+                python_tool = PythonAstREPLTool(
+                    locals={"df": df},
+                    description="Uma ferramenta para executar código python."
+                )
+
+                # 2. Criamos nossa função "wrapper"
+                def run_python_repl_wrapper(query: str) -> str:
+                    """
+                    Executa o código Python e intercepta saídas de gráficos,
+                    forçando uma resposta útil em português.
+                    """
+                    # Verifica se o código é para gerar um gráfico
+                    if "plt.show()" in query or "savefig" in query:
+                        # Executa o código, mas se prepara para ignorar a saída
+                        try:
+                            # Onde os gráficos do Streamlit são salvos por padrão
+                            plot_dir = "/tmp/streamlit_plots"
+                            os.makedirs(plot_dir, exist_ok=True)
+                            # Conta quantos arquivos existem para prever o nome do novo
+                            num_existing_plots = len(os.listdir(plot_dir))
+                            
+                            # Executa o código original
+                            python_tool.run(query)
+
+                            # Verifica se um novo arquivo foi criado
+                            files = sorted(os.listdir(plot_dir), key=lambda x: os.path.getmtime(os.path.join(plot_dir, x)))
+                            if len(files) > num_existing_plots:
+                                new_plot_path = os.path.join(plot_dir, files[-1])
+                                # Retorna a nossa mensagem personalizada em português!
+                                return f"Gráfico gerado com sucesso e salvo em: {new_plot_path}"
+                            else:
+                                return "Tentei gerar um gráfico, mas não consegui confirmar se foi salvo."
+                        except Exception as e:
+                            return f"Erro ao tentar gerar o gráfico: {e}"
+                    else:
+                        # Se não for um gráfico, executa normalmente
+                        return python_tool.run(query)
+
+                # 3. Criamos uma nova ferramenta que usa nossa função wrapper
+                custom_python_tool = Tool(
+                    name=python_tool.name,
+                    func=run_python_repl_wrapper,
+                    description=python_tool.description,
+                    args_schema=python_tool.args_schema
+                )
+
+                # 4. Criamos o agente, passando a NOSSA ferramenta customizada
                 st.session_state.agent_executor = create_pandas_dataframe_agent(
                     llm=st.session_state.llm,
-                    df=df,
-                    agent_type="openai-tools", 
+                    # O agente agora usará nossa ferramenta modificada
+                    tool=[custom_python_tool], 
                     verbose=True,
-                    allow_dangerous_code=True,
                 )
+                # --- FIM DA MODIFICAÇÃO DA FERRAMENTA ---
+
                 st.success("Agente pronto! Faça sua pergunta.")
             except Exception as e:
                 st.error(f"Erro na inicialização: {e}")
 
-# --- Área de Chat ---
+# --- Área de Chat (com tradução inteligente para texto) ---
 st.header("2. Converse com seus dados")
 st.info("Para melhores resultados, peça um tipo de gráfico por vez (ex: 'gere um histograma para V1').")
+
+def is_text_to_translate(text):
+    """Função simplificada para decidir se traduz."""
+    text = text.strip()
+    if not text or text.startswith("Gráfico gerado com sucesso"):
+        return False
+    # Se contém palavras comuns de respostas em inglês, é um bom candidato
+    common_words = ['mean', 'median', 'column', 'data', 'following', 'there is', 'are', 'is', 'the']
+    if any(word in text.lower().split() for word in common_words):
+        return True
+    return False
 
 for message in st.session_state.history:
     with st.chat_message(message["role"]):
@@ -93,28 +140,17 @@ if prompt := st.chat_input("Faça uma pergunta específica..."):
                     original_output = response.get("output", "A resposta do agente foi vazia.")
                     
                     final_output = original_output
-
-                    # --- CAMADA DE TRADUÇÃO INTELIGENTE ---
-                    # 1. Decidimos se devemos ou não traduzir
-                    if is_natural_language(original_output):
-                        with st.spinner("Traduzindo resposta para português..."):
+                    # Traduz apenas se for uma resposta textual em inglês
+                    if is_text_to_translate(original_output):
+                        with st.spinner("Traduzindo resposta..."):
                             translation_prompt = f"Traduza o seguinte texto para o português do Brasil, mantendo a formatação e o significado originais:\n\n{original_output}"
                             translation_response = st.session_state.llm.invoke(translation_prompt)
                             final_output = translation_response.content
-                    # --- FIM DA CAMADA DE TRADUÇÃO ---
-
-                    # A busca pelo gráfico continua na saída original, que é mais confiável
+                    
                     image_path = None
-                    match = re.search(r"(/tmp/plots/.*\.png)", original_output)
-                    if not match:
-                        # Alguns agentes podem retornar um texto diferente, vamos tentar outra regex
-                        match = re.search(r"Plot saved to (.*\.png)", original_output)
-
+                    match = re.search(r"(/tmp/streamlit_plots/.*\.png)", final_output)
                     if match:
                         image_path = match.group(1)
-                        # Se o agente retornou o caminho, vamos criar uma mensagem mais amigável
-                        if final_output == original_output: # Só substitui se não foi traduzido
-                            final_output = f"Aqui está o gráfico que você pediu. Ele foi gerado e salvo em `{image_path}`."
 
                     st.markdown(final_output)
                     st.session_state.history.append({"role": "assistant", "content": final_output})
@@ -122,7 +158,7 @@ if prompt := st.chat_input("Faça uma pergunta específica..."):
                     if image_path and os.path.exists(image_path):
                         image = Image.open(image_path)
                         st.image(image, caption="Gráfico gerado pelo agente")
-                    elif "plot" in original_output.lower() and not image_path:
+                    elif "gráfico" in final_output.lower() and not image_path:
                          st.warning("O agente mencionou um gráfico, mas não consegui encontrá-lo ou exibi-lo.")
 
                 except Exception as e:
