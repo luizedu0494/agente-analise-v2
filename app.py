@@ -1,4 +1,4 @@
-# app.py - Versão Final com Ferramenta Modificada
+# app.py - Versão Final com Ferramenta Modificada (e o 'df' corrigido)
 
 import streamlit as st
 import pandas as pd
@@ -16,7 +16,6 @@ st.set_page_config(page_title="🤖 Agente de Análise de Dados", layout="wide")
 st.title("🤖 Agente de Análise de Dados com Groq")
 
 # --- Estado da Sessão ---
-# ... (sem alterações no estado da sessão)
 if "history" not in st.session_state:
     st.session_state.history = []
 if "agent_executor" not in st.session_state:
@@ -47,10 +46,8 @@ with st.sidebar:
                 # --- INÍCIO DA MODIFICAÇÃO DA FERRAMENTA ---
 
                 # 1. Criamos a ferramenta padrão que o agente usaria
-                python_tool = PythonAstREPLTool(
-                    locals={"df": df},
-                    description="Uma ferramenta para executar código python."
-                )
+                # Passamos o dataframe para a ferramenta, para que ela possa executá-lo
+                python_tool = PythonAstREPLTool(locals={"df": df})
 
                 # 2. Criamos nossa função "wrapper"
                 def run_python_repl_wrapper(query: str) -> str:
@@ -58,27 +55,26 @@ with st.sidebar:
                     Executa o código Python e intercepta saídas de gráficos,
                     forçando uma resposta útil em português.
                     """
-                    # Verifica se o código é para gerar um gráfico
                     if "plt.show()" in query or "savefig" in query:
-                        # Executa o código, mas se prepara para ignorar a saída
                         try:
-                            # Onde os gráficos do Streamlit são salvos por padrão
-                            plot_dir = "/tmp/streamlit_plots"
-                            os.makedirs(plot_dir, exist_ok=True)
-                            # Conta quantos arquivos existem para prever o nome do novo
-                            num_existing_plots = len(os.listdir(plot_dir))
+                            # Executa o código usando a ferramenta original
+                            # A ferramenta já tem acesso ao 'df'
+                            result = python_tool.run(query)
                             
-                            # Executa o código original
-                            python_tool.run(query)
+                            # Mesmo que o resultado seja o objeto matplotlib,
+                            # o importante é que o arquivo foi salvo.
+                            # Vamos procurar o arquivo de plot.
+                            plot_dir = "/tmp/streamlit_plots"
+                            if not os.path.exists(plot_dir) or not os.listdir(plot_dir):
+                                return "Tentei gerar um gráfico, mas não encontrei o diretório de plots ou ele está vazio."
 
-                            # Verifica se um novo arquivo foi criado
-                            files = sorted(os.listdir(plot_dir), key=lambda x: os.path.getmtime(os.path.join(plot_dir, x)))
-                            if len(files) > num_existing_plots:
-                                new_plot_path = os.path.join(plot_dir, files[-1])
-                                # Retorna a nossa mensagem personalizada em português!
-                                return f"Gráfico gerado com sucesso e salvo em: {new_plot_path}"
-                            else:
-                                return "Tentei gerar um gráfico, mas não consegui confirmar se foi salvo."
+                            # Pega o arquivo mais recente no diretório
+                            files = sorted(
+                                [os.path.join(plot_dir, f) for f in os.listdir(plot_dir)],
+                                key=os.path.getmtime
+                            )
+                            new_plot_path = files[-1]
+                            return f"Gráfico gerado com sucesso e salvo em: {new_plot_path}"
                         except Exception as e:
                             return f"Erro ao tentar gerar o gráfico: {e}"
                     else:
@@ -87,19 +83,21 @@ with st.sidebar:
 
                 # 3. Criamos uma nova ferramenta que usa nossa função wrapper
                 custom_python_tool = Tool(
-                    name=python_tool.name,
+                    name="python_repl_ast", # O nome deve ser o mesmo da ferramenta interna
                     func=run_python_repl_wrapper,
-                    description=python_tool.description,
-                    args_schema=python_tool.args_schema
+                    description="Uma ferramenta para executar código python para análise de dados com pandas."
                 )
 
                 # 4. Criamos o agente, passando a NOSSA ferramenta customizada
+                # --- INÍCIO DA CORREÇÃO ---
                 st.session_state.agent_executor = create_pandas_dataframe_agent(
                     llm=st.session_state.llm,
-                    # O agente agora usará nossa ferramenta modificada
+                    df=df, # O ARGUMENTO QUE FALTAVA!
                     tool=[custom_python_tool], 
                     verbose=True,
+                    agent_type="openai-tools" # Especificar o tipo de agente
                 )
+                # --- FIM DA CORREÇÃO ---
                 # --- FIM DA MODIFICAÇÃO DA FERRAMENTA ---
 
                 st.success("Agente pronto! Faça sua pergunta.")
@@ -115,7 +113,6 @@ def is_text_to_translate(text):
     text = text.strip()
     if not text or text.startswith("Gráfico gerado com sucesso"):
         return False
-    # Se contém palavras comuns de respostas em inglês, é um bom candidato
     common_words = ['mean', 'median', 'column', 'data', 'following', 'there is', 'are', 'is', 'the']
     if any(word in text.lower().split() for word in common_words):
         return True
@@ -140,7 +137,6 @@ if prompt := st.chat_input("Faça uma pergunta específica..."):
                     original_output = response.get("output", "A resposta do agente foi vazia.")
                     
                     final_output = original_output
-                    # Traduz apenas se for uma resposta textual em inglês
                     if is_text_to_translate(original_output):
                         with st.spinner("Traduzindo resposta..."):
                             translation_prompt = f"Traduza o seguinte texto para o português do Brasil, mantendo a formatação e o significado originais:\n\n{original_output}"
