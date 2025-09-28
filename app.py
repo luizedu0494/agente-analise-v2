@@ -1,4 +1,4 @@
-# app.py - Versão Pura e Focada no Agente Conversacional
+# app.py - Versão Final com Nome do Dataframe Forçado
 
 import streamlit as st
 import pandas as pd
@@ -28,11 +28,9 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-    # Adiciona um espaço para manter a barra lateral limpa
     st.sidebar.markdown("---")
     st.sidebar.write("Desenvolvido com a sua colaboração.")
     st.sidebar.write("Foco: 100% na interação com o agente.")
-
 
 # --- Lógica de Inicialização ---
 if uploaded_file is not None and st.session_state.df is None:
@@ -41,58 +39,55 @@ if uploaded_file is not None and st.session_state.df is None:
             st.session_state.df = pd.read_csv(uploaded_file)
             groq_api_key = st.secrets["GROQ_API_KEY"]
             st.session_state.llm = ChatGroq(temperature=0, model_name="gemma2-9b-it", groq_api_key=groq_api_key)
-            # Mensagem de boas-vindas no chat
             st.session_state.history.append({
                 "role": "assistant",
-                "content": f"Arquivo `{uploaded_file.name}` carregado com sucesso! Sou seu assistente de análise de dados. O que você gostaria de saber?"
+                "content": f"Arquivo `{uploaded_file.name}` carregado com sucesso! Sou seu assistente de análise de dados. O dataframe está carregado na variável `df`. O que você gostaria de saber?"
             })
         except Exception as e:
             st.error(f"Erro na inicialização: {e}")
 
 # --- Interface Principal ---
-
 if st.session_state.df is None:
     st.info("👆 Para começar, carregue um arquivo CSV na barra lateral.")
 else:
-    # A interface de chat é agora o elemento central
     st.header("Converse com seus Dados")
 
-    # Exibe o histórico de mensagens
     for message in st.session_state.history:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # Input do usuário
     if user_prompt := st.chat_input("Ex: 'Qual a média da coluna X?' ou 'Gere um histograma para Y'"):
         st.session_state.history.append({"role": "user", "content": user_prompt})
         with st.chat_message("user"):
             st.markdown(user_prompt)
 
-        # Gera e exibe a resposta do assistente
         with st.chat_message("assistant"):
             with st.spinner("Analisando sua pergunta e gerando o código..."):
-                df = st.session_state.df # Disponibiliza o df para o exec()
+                df = st.session_state.df
                 
-                # Formata o histórico para o prompt
                 formatted_history = ""
                 for message in st.session_state.history:
                     role = "Usuário" if message["role"] == "user" else "Assistente (código gerado)"
                     formatted_history += f"{role}: {message['content']}\n"
 
-                # Prompt com memória
+                # --- INÍCIO DA CORREÇÃO NO PROMPT ---
                 code_generation_prompt = f"""
-                Você é um especialista em Python, pandas e matplotlib. Continue a conversa abaixo gerando o próximo bloco de código Python necessário para responder à última pergunta do usuário.
+                Você é um especialista em Python e pandas. Sua tarefa é gerar código para responder a uma pergunta sobre um dataframe.
+                O dataframe com o qual você deve trabalhar está SEMPRE na variável chamada `df`. NUNCA use outro nome para o dataframe.
+
+                Continue a conversa abaixo gerando o próximo bloco de código Python necessário.
                 Considere todo o histórico da conversa para entender o contexto.
 
                 ### Histórico da Conversa ###
                 {formatted_history}
                 ### Fim do Histórico ###
 
-                Baseado na última pergunta do usuário e no contexto acima, gere o próximo código Python.
-                - Para perguntas que retornam um valor (cálculos, dtypes, describe), **SEMPRE** use a função `print()`.
-                - Para perguntas que pedem um gráfico, use `plt.show()`.
+                Baseado na última pergunta do usuário e no contexto acima, gere o próximo código Python usando o dataframe `df`.
+                - Para cálculos e descrições (mean, dtypes, describe), **SEMPRE** use `print()`. Ex: `print(df.describe())`.
+                - Para gráficos, use `plt.show()`. Ex: `plt.hist(df['Amount'])`.
                 - Forneça apenas o bloco de código Python, sem explicações.
                 """
+                # --- FIM DA CORREÇÃO NO PROMPT ---
                 
                 code_response = st.session_state.llm.invoke(code_generation_prompt)
                 generated_code = code_response.content.strip().replace("```python", "").replace("```", "").strip()
@@ -123,4 +118,3 @@ else:
                     error_message = f"Ocorreu um erro ao executar o código: {e}"
                     st.error(error_message)
                     st.session_state.history.append({"role": "assistant", "content": f"Erro: {error_message}"})
-
