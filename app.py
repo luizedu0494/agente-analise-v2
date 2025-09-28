@@ -1,4 +1,4 @@
-# app.py - Versão Final com Ferramenta Modificada (e o 'df' corrigido)
+# app.py - Versão Final com allow_dangerous_code=True
 
 import streamlit as st
 import pandas as pd
@@ -43,32 +43,21 @@ with st.sidebar:
                 groq_api_key = st.secrets["GROQ_API_KEY"]
                 st.session_state.llm = ChatGroq(temperature=0, model_name="gemma2-9b-it", groq_api_key=groq_api_key)
                 
-                # --- INÍCIO DA MODIFICAÇÃO DA FERRAMENTA ---
-
-                # 1. Criamos a ferramenta padrão que o agente usaria
-                # Passamos o dataframe para a ferramenta, para que ela possa executá-lo
                 python_tool = PythonAstREPLTool(locals={"df": df})
 
-                # 2. Criamos nossa função "wrapper"
                 def run_python_repl_wrapper(query: str) -> str:
-                    """
-                    Executa o código Python e intercepta saídas de gráficos,
-                    forçando uma resposta útil em português.
-                    """
                     if "plt.show()" in query or "savefig" in query:
                         try:
-                            # Executa o código usando a ferramenta original
-                            # A ferramenta já tem acesso ao 'df'
                             result = python_tool.run(query)
-                            
-                            # Mesmo que o resultado seja o objeto matplotlib,
-                            # o importante é que o arquivo foi salvo.
-                            # Vamos procurar o arquivo de plot.
                             plot_dir = "/tmp/streamlit_plots"
                             if not os.path.exists(plot_dir) or not os.listdir(plot_dir):
-                                return "Tentei gerar um gráfico, mas não encontrei o diretório de plots ou ele está vazio."
+                                # Tenta criar o diretório se ele não existir
+                                os.makedirs(plot_dir, exist_ok=True)
+                                # Re-executa o plot após criar o diretório
+                                python_tool.run(query)
+                                if not os.listdir(plot_dir):
+                                    return "Tentei gerar um gráfico, mas o diretório de plots permaneceu vazio."
 
-                            # Pega o arquivo mais recente no diretório
                             files = sorted(
                                 [os.path.join(plot_dir, f) for f in os.listdir(plot_dir)],
                                 key=os.path.getmtime
@@ -78,38 +67,35 @@ with st.sidebar:
                         except Exception as e:
                             return f"Erro ao tentar gerar o gráfico: {e}"
                     else:
-                        # Se não for um gráfico, executa normalmente
                         return python_tool.run(query)
 
-                # 3. Criamos uma nova ferramenta que usa nossa função wrapper
                 custom_python_tool = Tool(
-                    name="python_repl_ast", # O nome deve ser o mesmo da ferramenta interna
+                    name="python_repl_ast",
                     func=run_python_repl_wrapper,
                     description="Uma ferramenta para executar código python para análise de dados com pandas."
                 )
 
-                # 4. Criamos o agente, passando a NOSSA ferramenta customizada
                 # --- INÍCIO DA CORREÇÃO ---
                 st.session_state.agent_executor = create_pandas_dataframe_agent(
                     llm=st.session_state.llm,
-                    df=df, # O ARGUMENTO QUE FALTAVA!
+                    df=df,
                     tool=[custom_python_tool], 
                     verbose=True,
-                    agent_type="openai-tools" # Especificar o tipo de agente
+                    agent_type="openai-tools",
+                    # ADICIONANDO A FLAG DE SEGURANÇA DE VOLTA
+                    allow_dangerous_code=True 
                 )
                 # --- FIM DA CORREÇÃO ---
-                # --- FIM DA MODIFICAÇÃO DA FERRAMENTA ---
 
                 st.success("Agente pronto! Faça sua pergunta.")
             except Exception as e:
                 st.error(f"Erro na inicialização: {e}")
 
-# --- Área de Chat (com tradução inteligente para texto) ---
+# --- Área de Chat (sem alterações) ---
 st.header("2. Converse com seus dados")
 st.info("Para melhores resultados, peça um tipo de gráfico por vez (ex: 'gere um histograma para V1').")
 
 def is_text_to_translate(text):
-    """Função simplificada para decidir se traduz."""
     text = text.strip()
     if not text or text.startswith("Gráfico gerado com sucesso"):
         return False
