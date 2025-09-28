@@ -1,4 +1,4 @@
-# app.py - Versão com Correção Final de Inicialização
+# app.py - Versão Original com o Ajuste Correto
 
 import streamlit as st
 import pandas as pd
@@ -7,8 +7,11 @@ import os
 import re
 from PIL import Image
 
+# Importações para LangChain e Groq
 from langchain_groq import ChatGroq
 from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
+# Importação necessária para a mensagem extra
+from langchain_core.prompts import MessagesPlaceholder
 
 st.set_page_config(page_title="🤖 Agente de Análise de Dados", layout="wide")
 st.title("🤖 Agente de Análise de Dados com Groq")
@@ -40,32 +43,27 @@ with st.sidebar:
                 llm = ChatGroq(temperature=0, model_name="gemma2-9b-it", groq_api_key=groq_api_key)
                 
                 # --- INÍCIO DA CORREÇÃO ---
-                PREFIX = """
-                Você é um agente de análise de dados que trabalha com um dataframe pandas.
-                Você tem acesso a um dataframe pandas chamado `df`.
-                Você tem as seguintes ferramentas à sua disposição:
-                """
+                # Esta é a instrução persistente que o agente seguirá.
+                # É mais eficaz que um system prompt genérico.
+                prompt_message = MessagesPlaceholder(
+                    variable_name="extra_instructions",
+                    messages=[(
+                        "system",
+                        "Sempre, sem exceção, formule sua resposta final para o usuário em português do Brasil. "
+                        "O pensamento interno e o código Python podem ser em inglês, mas a resposta final (o campo 'output') "
+                        "DEVE estar em português."
+                    )]
+                )
 
-                SUFFIX = """
-                A pergunta do usuário é: {input}
-
-                Sempre, sem exceção, formule sua resposta final para o usuário em **português do Brasil**.
-                O pensamento interno e o código Python podem ser em inglês, mas a resposta final (o campo 'output') DEVE estar em português.
-
-                {agent_scratchpad}
-                """
-                
-                # Criando o agente com as instruções e as variáveis de input corretas
                 st.session_state.agent_executor = create_pandas_dataframe_agent(
                     llm,
                     df,
-                    prefix=PREFIX,
-                    suffix=SUFFIX,
-                    # CORREÇÃO: Declarando as variáveis que o agente espera por padrão.
-                    input_variables=['input', 'agent_scratchpad'],
-                    agent_type="openai-tools",
+                    agent_type="openai-tools", 
                     verbose=True,
                     allow_dangerous_code=True,
+                    # CORREÇÃO: Usando 'extra_prompt_messages' em vez de 'agent_executor_kwargs'.
+                    # Esta é a forma moderna e correta de adicionar instruções.
+                    extra_prompt_messages=[prompt_message]
                 )
                 # --- FIM DA CORREÇÃO ---
 
@@ -73,7 +71,7 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Erro na inicialização: {e}")
 
-# --- Área de Chat (sem alterações) ---
+# --- Área de Chat (Exatamente como no seu código original) ---
 st.header("2. Converse com seus dados")
 st.info("Para melhores resultados, peça um tipo de gráfico por vez (ex: 'gere um histograma para V1').")
 
@@ -92,6 +90,7 @@ if prompt := st.chat_input("Faça uma pergunta específica..."):
         with st.chat_message("assistant"):
             with st.spinner("Analisando e respondendo..."):
                 try:
+                    # A chamada invoke permanece simples, como no seu original
                     response = st.session_state.agent_executor.invoke({"input": prompt})
                     output_text = response.get("output", "A resposta do agente foi vazia.")
                     
