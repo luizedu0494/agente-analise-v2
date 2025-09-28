@@ -1,4 +1,4 @@
-# app.py - Versão Final Robusta para Streamlit
+# app.py - Versão Final com .invoke()
 
 import streamlit as st
 import pandas as pd
@@ -11,29 +11,21 @@ from PIL import Image
 # Importações para LangChain e Groq
 from langchain_groq import ChatGroq
 from langchain.agents import AgentType, initialize_agent, Tool
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-# --- Ferramenta de Plotagem (Nosso código customizado e confiável) ---
+st.set_page_config(page_title="🤖 Agente de Análise de Dados", layout="wide")
+st.title("🤖 Agente de Análise de Dados com Groq e Streamlit")
 
+# --- Ferramenta de Plotagem (Backend) ---
 def python_plot_tool(code_to_exec: str) -> str:
-    """
-    Executa código Python para gerar UM ÚNICO gráfico.
-    Salva o gráfico em um arquivo temporário e retorna o caminho do arquivo.
-    """
     df = st.session_state.get('df_global')
     if df is None:
         return "Erro: Dataframe não encontrado."
     
     plt.close('all')
     try:
-        # Prepara o ambiente de execução para o código do agente
         local_namespace = {
-            "df": df,
-            "plt": plt,
-            "sns": __import__("seaborn"),
-            "pd": pd
+            "df": df, "plt": plt, "sns": __import__("seaborn"), "pd": pd
         }
-        # Executa o código gerado pelo agente
         exec(code_to_exec, local_namespace)
         
         fig = plt.gcf()
@@ -47,16 +39,13 @@ def python_plot_tool(code_to_exec: str) -> str:
             return f"Plot gerado com sucesso e salvo em: {file_path}"
         
         plt.close(fig)
-        return "Nenhum plot foi gerado pelo código. Lembre-se de usar plt.show() ou salvar a figura."
+        return "Nenhum plot foi gerado pelo código."
     except Exception as e:
         plt.close('all')
         print(f"Erro ao executar o código de plotagem: {e}")
         return f"Erro ao executar o código: {e}"
 
-# --- Lógica da Interface com Streamlit (Frontend) ---
-
-st.set_page_config(page_title="🤖 Agente de Análise de Dados", layout="wide")
-st.title("🤖 Agente de Análise de Dados com Groq e Streamlit")
+# --- Lógica da Interface (Frontend) ---
 
 # Gerenciamento de estado da sessão
 if "history" not in st.session_state:
@@ -82,7 +71,6 @@ with st.sidebar:
                 
                 llm = ChatGroq(temperature=0, model_name="gemma2-9b-it", groq_api_key=groq_api_key)
                 
-                # Criamos uma lista com nossa única e confiável ferramenta
                 tools = [
                     Tool(
                         name="PythonPlotter",
@@ -97,13 +85,8 @@ with st.sidebar:
                     )
                 ]
                 
-                # Inicializamos um agente mais simples e controlado
                 st.session_state.agent = initialize_agent(
-                    tools,
-                    llm,
-                    agent=AgentType.OPENAI_FUNCTIONS,
-                    verbose=True,
-                    handle_parsing_errors=True
+                    tools, llm, agent=AgentType.OPENAI_FUNCTIONS, verbose=True, handle_parsing_errors=True
                 )
                 st.success("Agente pronto para uso!")
             except Exception as e:
@@ -129,8 +112,10 @@ if prompt := st.chat_input("Faça sua pergunta sobre o arquivo..."):
         with st.chat_message("assistant"):
             with st.spinner("Analisando e respondendo..."):
                 try:
-                    response = st.session_state.agent.run(prompt)
-                    output_text = str(response)
+                    # --- AQUI ESTÁ A CORREÇÃO FINAL ---
+                    # Trocamos o obsoleto .run() pelo moderno .invoke()
+                    response = st.session_state.agent.invoke({"input": prompt})
+                    output_text = response.get("output", "A resposta do agente foi vazia.")
                     
                     image_path = None
                     match = re.search(r"(/tmp/[a-zA-Z0-9/_-]+\.(png|jpg|jpeg))", output_text)
