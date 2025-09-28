@@ -1,4 +1,4 @@
-# app.py - Versão Final com .invoke()
+# app.py - Versão Final com Agente ReAct
 
 import streamlit as st
 import pandas as pd
@@ -47,7 +47,6 @@ def python_plot_tool(code_to_exec: str) -> str:
 
 # --- Lógica da Interface (Frontend) ---
 
-# Gerenciamento de estado da sessão
 if "history" not in st.session_state:
     st.session_state.history = []
 if "agent" not in st.session_state:
@@ -85,8 +84,14 @@ with st.sidebar:
                     )
                 ]
                 
+                # --- AQUI ESTÁ A CORREÇÃO FINAL ---
+                # Trocamos o agente para um tipo universalmente compatível.
                 st.session_state.agent = initialize_agent(
-                    tools, llm, agent=AgentType.OPENAI_FUNCTIONS, verbose=True, handle_parsing_errors=True
+                    tools, 
+                    llm, 
+                    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, # Usando o agente ReAct
+                    verbose=True, 
+                    handle_parsing_errors=True
                 )
                 st.success("Agente pronto para uso!")
             except Exception as e:
@@ -112,8 +117,6 @@ if prompt := st.chat_input("Faça sua pergunta sobre o arquivo..."):
         with st.chat_message("assistant"):
             with st.spinner("Analisando e respondendo..."):
                 try:
-                    # --- AQUI ESTÁ A CORREÇÃO FINAL ---
-                    # Trocamos o obsoleto .run() pelo moderno .invoke()
                     response = st.session_state.agent.invoke({"input": prompt})
                     output_text = response.get("output", "A resposta do agente foi vazia.")
                     
