@@ -1,4 +1,4 @@
-# app.py - Abordagem Final, Corrigida e Simplificada
+# app.py - Versão Final com 'print()' forçado
 
 import streamlit as st
 import pandas as pd
@@ -44,7 +44,6 @@ with st.sidebar:
 # --- Área de Chat ---
 st.header("2. Converse com seus dados")
 
-# O histórico agora só contém texto, então a exibição é simples
 for message in st.session_state.history:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
@@ -53,27 +52,32 @@ if user_prompt := st.chat_input("Faça uma pergunta específica..."):
     if st.session_state.df is None:
         st.warning("Por favor, carregue um arquivo CSV na barra lateral primeiro.")
     else:
-        # Adiciona a pergunta do usuário ao histórico e a exibe
         st.session_state.history.append({"role": "user", "content": user_prompt})
         with st.chat_message("user"):
             st.markdown(user_prompt)
 
-        # Exibe a resposta do assistente
         with st.chat_message("assistant"):
             with st.spinner("Gerando código Python..."):
+                # --- INÍCIO DA CORREÇÃO NO PROMPT ---
                 code_generation_prompt = f"""
-                Você é um especialista em Python, pandas e matplotlib.
-                Baseado na pergunta do usuário, escreva um código Python para analisar o dataframe chamado 'df'.
-                - Se a pergunta for sobre um cálculo (média, contagem, etc.), use print() para mostrar o resultado.
-                - Se a pergunta pedir um gráfico (histograma, dispersão, etc.), use plt.show().
-                - Não adicione explicações, apenas o bloco de código Python.
+                Você é um especialista em Python e pandas. Sua tarefa é gerar código para responder a uma pergunta sobre um dataframe chamado 'df'.
+                - Para perguntas que retornam um valor, uma série ou um dataframe (como cálculos, descrições ou tipos de dados), **SEMPRE** use a função `print()` para exibir o resultado. Exemplo: `print(df.head())`, `print(df['coluna'].mean())`, `print(df.dtypes)`.
+                - Para perguntas que pedem um gráfico, use `plt.show()`.
+                - Forneça apenas o bloco de código Python, sem explicações.
 
                 Pergunta: "{user_prompt}"
                 """
+                # --- FIM DA CORREÇÃO NO PROMPT ---
                 code_response = st.session_state.llm.invoke(code_generation_prompt)
                 generated_code = code_response.content.strip().replace("```python", "").replace("```", "").strip()
                 
-                st.write("Código gerado pelo LLM:")
+                # --- INÍCIO DA MELHORIA DE ROBUSTEZ ---
+                # Se o código não for um plot e não tiver print, adiciona um print().
+                if "plt.show()" not in generated_code and "print(" not in generated_code:
+                    generated_code = f"print({generated_code})"
+                # --- FIM DA MELHORIA DE ROBUSTEZ ---
+
+                st.write("Código a ser executado:")
                 st.code(generated_code)
 
             with st.spinner("Executando código e preparando resposta..."):
@@ -81,39 +85,25 @@ if user_prompt := st.chat_input("Faça uma pergunta específica..."):
                 output_buffer = io.StringIO()
                 
                 try:
-                    # --- INÍCIO DA CORREÇÃO ---
                     if "plt.show()" in generated_code:
-                        # Cria uma figura Matplotlib
                         fig, ax = plt.subplots()
-                        # Executa o código gerado, que desenhará na figura 'fig'
                         exec(generated_code.replace("plt.show()", ""), {"df": df, "plt": plt, "ax": ax})
-                        
-                        # Exibe o gráfico IMEDIATAMENTE usando st.pyplot
                         st.pyplot(fig)
-                        plt.close(fig) # Limpa a figura da memória para evitar problemas
-                        
-                        # Adiciona uma mensagem de TEXTO ao histórico
+                        plt.close(fig)
                         final_response_text = "Aqui está o gráfico que você pediu."
                         st.session_state.history.append({"role": "assistant", "content": final_response_text})
 
-                    else: # Se for um cálculo com print()
+                    else:
                         with contextlib.redirect_stdout(output_buffer):
                             exec(generated_code, {"df": df})
                         
                         text_output = output_buffer.getvalue().strip()
                         
-                        # Traduz a saída se for o caso (ex: "The mean is...")
-                        if any(word in text_output.lower() for word in ['mean', 'median', 'count']):
-                             translation_prompt = f"Traduza a seguinte frase para o português do Brasil: '{text_output}'"
-                             translation_response = st.session_state.llm.invoke(translation_prompt)
-                             final_response_text = translation_response.content
-                        else:
-                             final_response_text = f"O resultado do cálculo é: **{text_output}**"
+                        # Agora, a saída não estará mais vazia
+                        final_response_text = f"**Resultado:**\n```\n{text_output}\n```"
 
-                        # Exibe o texto e o adiciona ao histórico
                         st.markdown(final_response_text)
                         st.session_state.history.append({"role": "assistant", "content": final_response_text})
-                    # --- FIM DA CORREÇÃO ---
 
                 except Exception as e:
                     error_message = f"Ocorreu um erro ao executar o código gerado: {e}"
