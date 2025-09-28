@@ -1,4 +1,4 @@
-# app.py - Versão Definitiva com Histórico Persistente e UI Limpa
+# app.py - Versão Definitiva com Execução Robusta
 
 import streamlit as st
 import pandas as pd
@@ -52,28 +52,24 @@ if st.session_state.df is None:
     st.info("👆 Para começar, carregue um arquivo CSV na barra lateral.")
 else:
     st.header("Converse com seus Dados")
-    df = st.session_state.df # Garante que o df esteja disponível para o loop de exibição
+    df = st.session_state.df
 
-    # --- INÍCIO DA CORREÇÃO DO HISTÓRICO PERSISTENTE ---
-    # Este loop agora re-renderiza todo o histórico, incluindo gráficos e dataframes
+    # Loop de exibição do histórico
     for message in st.session_state.history:
         with st.chat_message(message["role"]):
             if message["type"] == "text":
                 st.markdown(message["content"])
             elif message["type"] == "code_output":
                 st.markdown("**Resultado:**")
-                # Se a saída for um dataframe (como de 'describe'), usa st.dataframe
-                if isinstance(message["content"], pd.DataFrame):
+                if isinstance(message["content"], (pd.DataFrame, pd.Series)):
                     st.dataframe(message["content"])
                 else:
                     st.code(message["content"], language=None)
             elif message["type"] == "plot":
-                # Re-executa o código do gráfico para redesenhá-lo
                 fig, ax = plt.subplots()
                 exec(message["content"].replace("plt.show()", ""), {"df": df, "plt": plt, "ax": ax})
                 st.pyplot(fig)
                 plt.close(fig)
-    # --- FIM DA CORREÇÃO DO HISTÓRICO PERSISTENTE ---
 
     if user_prompt := st.chat_input("Ex: 'Qual a média da coluna X?' ou 'Gere um histograma para Y'"):
         st.session_state.history.append({"role": "user", "type": "text", "content": user_prompt})
@@ -87,7 +83,7 @@ else:
                     role = "Usuário" if msg["role"] == "user" else "Assistente"
                     content = msg['content']
                     if isinstance(content, pd.DataFrame):
-                        content = content.to_string() # Converte df para string para o prompt
+                        content = content.to_string()
                     formatted_history += f"{role}: {content}\n"
 
                 code_generation_prompt = f"""
@@ -113,33 +109,38 @@ else:
             with st.spinner("Executando código e preparando a resposta..."):
                 try:
                     if "plt.show()" in generated_code:
-                        # Salva o código do gráfico no histórico para ser re-renderizado
                         st.session_state.history.append({"role": "assistant", "type": "plot", "content": generated_code})
-                        # Executa para exibir pela primeira vez
                         fig, ax = plt.subplots()
                         exec(generated_code.replace("plt.show()", ""), {"df": df, "plt": plt, "ax": ax})
                         st.pyplot(fig)
                         plt.close(fig)
                     else:
-                        # --- INÍCIO DA CORREÇÃO DA SAÍDA DE TEXTO ---
-                        # Usamos exec para avaliar o código e capturar o resultado
-                        # Isso nos permite verificar se o resultado é um dataframe
-                        result = None
-                        with contextlib.redirect_stdout(io.StringIO()) as stdout:
-                            # O 'result' será o que a última linha do código retorna
-                            result = eval(generated_code.replace("print(", "").replace(")", ""), {"df": df})
-                        
-                        # Se o resultado for um dataframe, o salvamos como tal
-                        if isinstance(result, (pd.DataFrame, pd.Series)):
-                            st.session_state.history.append({"role": "assistant", "type": "code_output", "content": result})
-                            st.markdown("**Resultado:**")
-                            st.dataframe(result)
-                        else: # Caso contrário, tratamos como texto
-                            text_output = str(result)
+                        # --- INÍCIO DA CORREÇÃO DA EXECUÇÃO ---
+                        output_buffer = io.StringIO()
+                        with contextlib.redirect_stdout(output_buffer):
+                            exec(generated_code, {"df": df})
+                        text_output = output_buffer.getvalue().strip()
+
+                        # Tenta avaliar o código para ver se é um dataframe
+                        try:
+                            # Usamos uma versão segura do eval, sem o print
+                            eval_code = generated_code.strip()
+                            if eval_code.startswith("print("):
+                                eval_code = eval_code[6:-1] # Remove 'print(' e ')'
+                            
+                            result_obj = eval(eval_code, {"df": df})
+
+                            if isinstance(result_obj, (pd.DataFrame, pd.Series)):
+                                st.session_state.history.append({"role": "assistant", "type": "code_output", "content": result_obj})
+                                st.markdown("**Resultado:**")
+                                st.dataframe(result_obj)
+                            else: # Se não for um dataframe, usa o texto capturado
+                                raise ValueError("Não é um dataframe")
+                        except Exception: # Se o eval falhar ou não for um dataframe
                             st.session_state.history.append({"role": "assistant", "type": "code_output", "content": text_output})
                             st.markdown("**Resultado:**")
                             st.code(text_output, language=None)
-                        # --- FIM DA CORREÇÃO DA SAÍDA DE TEXTO ---
+                        # --- FIM DA CORREÇÃO DA EXECUÇÃO ---
 
                 except Exception as e:
                     error_message = f"Ocorreu um erro ao executar o código: {e}"
