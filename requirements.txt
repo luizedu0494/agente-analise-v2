@@ -1,7 +1,9 @@
-streamlit==1.33.0
-pandas==2.2.0
-langchain-experimental==0.0.58
-langchain-google-genai==1.0.2
-google-generativeai==0.5.0  # <-- A LINHA QUE FALTAVA
-matplotlib==3.8.3
+# Deixando o pip resolver as dependências
+streamlit
+pandas
+langchain-experimental
+langchain-groq
+matplotlib
 tabulate
+Pillow
+seaborn 
