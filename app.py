@@ -1,4 +1,4 @@
-# app.py - Abordagem Final e Direta
+# app.py - Abordagem Final, Corrigida e Simplificada
 
 import streamlit as st
 import pandas as pd
@@ -44,25 +44,23 @@ with st.sidebar:
 # --- Área de Chat ---
 st.header("2. Converse com seus dados")
 
+# O histórico agora só contém texto, então a exibição é simples
 for message in st.session_state.history:
     with st.chat_message(message["role"]):
-        # Renderiza imagens ou texto
-        if "image" in message:
-            st.image(message["image"], caption=message.get("content", ""))
-        else:
-            st.markdown(message["content"])
+        st.markdown(message["content"])
 
 if user_prompt := st.chat_input("Faça uma pergunta específica..."):
     if st.session_state.df is None:
         st.warning("Por favor, carregue um arquivo CSV na barra lateral primeiro.")
     else:
+        # Adiciona a pergunta do usuário ao histórico e a exibe
         st.session_state.history.append({"role": "user", "content": user_prompt})
         with st.chat_message("user"):
             st.markdown(user_prompt)
 
+        # Exibe a resposta do assistente
         with st.chat_message("assistant"):
             with st.spinner("Gerando código Python..."):
-                # 1. Gerar o código Python
                 code_generation_prompt = f"""
                 Você é um especialista em Python, pandas e matplotlib.
                 Baseado na pergunta do usuário, escreva um código Python para analisar o dataframe chamado 'df'.
@@ -79,33 +77,43 @@ if user_prompt := st.chat_input("Faça uma pergunta específica..."):
                 st.code(generated_code)
 
             with st.spinner("Executando código e preparando resposta..."):
-                # 2. Executar o código e capturar a saída
-                df = st.session_state.df  # Torna o df disponível no escopo local
+                df = st.session_state.df
                 output_buffer = io.StringIO()
                 
                 try:
-                    # Se for um plot, ele será capturado
+                    # --- INÍCIO DA CORREÇÃO ---
                     if "plt.show()" in generated_code:
+                        # Cria uma figura Matplotlib
                         fig, ax = plt.subplots()
-                        # Usamos um truque para que o 'exec' desenhe no nosso 'ax'
+                        # Executa o código gerado, que desenhará na figura 'fig'
                         exec(generated_code.replace("plt.show()", ""), {"df": df, "plt": plt, "ax": ax})
+                        
+                        # Exibe o gráfico IMEDIATAMENTE usando st.pyplot
                         st.pyplot(fig)
-                        plt.close(fig) # Limpa a figura da memória
-                        st.session_state.history.append({"role": "assistant", "image": fig, "content": "Aqui está o gráfico que você pediu."})
+                        plt.close(fig) # Limpa a figura da memória para evitar problemas
+                        
+                        # Adiciona uma mensagem de TEXTO ao histórico
+                        final_response_text = "Aqui está o gráfico que você pediu."
+                        st.session_state.history.append({"role": "assistant", "content": final_response_text})
 
-                    # Se for um cálculo com print()
-                    else:
+                    else: # Se for um cálculo com print()
                         with contextlib.redirect_stdout(output_buffer):
                             exec(generated_code, {"df": df})
                         
                         text_output = output_buffer.getvalue().strip()
                         
-                        # 3. Traduzir a saída se necessário
-                        final_text = f"O resultado é: **{text_output}**"
-                        # (A camada de tradução pode ser adicionada aqui se a saída for em inglês)
+                        # Traduz a saída se for o caso (ex: "The mean is...")
+                        if any(word in text_output.lower() for word in ['mean', 'median', 'count']):
+                             translation_prompt = f"Traduza a seguinte frase para o português do Brasil: '{text_output}'"
+                             translation_response = st.session_state.llm.invoke(translation_prompt)
+                             final_response_text = translation_response.content
+                        else:
+                             final_response_text = f"O resultado do cálculo é: **{text_output}**"
 
-                        st.markdown(final_text)
-                        st.session_state.history.append({"role": "assistant", "content": final_text})
+                        # Exibe o texto e o adiciona ao histórico
+                        st.markdown(final_response_text)
+                        st.session_state.history.append({"role": "assistant", "content": final_response_text})
+                    # --- FIM DA CORREÇÃO ---
 
                 except Exception as e:
                     error_message = f"Ocorreu um erro ao executar o código gerado: {e}"
